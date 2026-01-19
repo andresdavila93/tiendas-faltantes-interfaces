@@ -6,7 +6,7 @@ st.set_page_config(page_title="Faltantes en Interfaces", layout="wide")
 st.title("Validación: Tiendas y CEDIS faltantes en Interfaces")
 
 # =========================================================
-# Helpers generales
+# Helpers
 # =========================================================
 def normalize_str(x):
     if pd.isna(x):
@@ -14,7 +14,6 @@ def normalize_str(x):
     return str(x).strip()
 
 def to_numeric_series(s: pd.Series) -> pd.Series:
-    # Convierte textos con números a número (quita todo lo que no sea dígito)
     return pd.to_numeric(
         s.astype(str)
          .str.replace(r"\.0$", "", regex=True)
@@ -33,14 +32,13 @@ def load_excel_first_sheet(uploaded_file, header=0):
 # Paso 1 - Interfaces
 # =========================================================
 def extract_cecos_from_interfaces(df_interfaces: pd.DataFrame) -> pd.Series:
-    # Preferir columna "Cecos" (por nombre). Si no existe, usar columna F (index 5)
     cols_map = {c.lower().strip(): c for c in df_interfaces.columns}
     if "cecos" in cols_map:
         s = df_interfaces[cols_map["cecos"]]
     else:
         if df_interfaces.shape[1] < 6:
             raise ValueError("El consolidado de interfaces no tiene al menos 6 columnas (para usar columna F).")
-        s = df_interfaces.iloc[:, 5]  # F
+        s = df_interfaces.iloc[:, 5]  # Columna F
     return to_numeric_series(s).dropna().astype(int)
 
 # =========================================================
@@ -80,27 +78,26 @@ def process_cecos_file(uploaded_file):
     if df_raw.shape[1] <= col_end:
         raise ValueError("La hoja Cecos no llega hasta la columna AM.")
 
-    # Cortar hasta última fila con texto en columna AM
+    # Cortar hasta última fila con texto en AM
     last_row = last_nonempty_row_in_col(df_raw, col_end, header_row)
     if last_row is None or last_row <= header_row:
         raise ValueError("No pude determinar el final de la tabla usando la columna AM.")
 
-    # Encabezados desde A..AM en la fila donde está Status
+    # Encabezados
     headers = df_raw.iloc[header_row, col_start:col_end + 1].tolist()
     headers = [normalize_str(h) if normalize_str(h) else f"COL_{i+1}" for i, h in enumerate(headers)]
 
-    # Datos debajo del header
+    # Datos
     data = df_raw.iloc[header_row + 1:last_row + 1, col_start:col_end + 1].copy()
     data.columns = headers
 
-    # Detectar columnas por nombre (para filtrar sin depender de letras)
+    # Columnas por nombre
     cols_lower = {c.strip().lower(): c for c in data.columns}
 
     if "status" not in cols_lower:
         raise ValueError("Armé la tabla pero no existe una columna llamada 'Status' en los encabezados.")
     col_status = cols_lower["status"]
 
-    # Buscar algo que contenga "concepto" y "tienda"
     col_concepto = None
     for k in cols_lower.keys():
         if "concepto" in k and "tienda" in k:
@@ -120,7 +117,6 @@ def process_cecos_file(uploaded_file):
     df_f = df_f[df_f[col_status].str.upper() == "ABIERTA"]
     df_f = df_f[df_f[col_concepto].str.upper() != "FRANQUICIA"]
 
-    # Tienda a número
     tiendas = to_numeric_series(df_f[col_tienda]).dropna().astype(int).unique()
     return tiendas
 
@@ -152,18 +148,16 @@ def process_md_file(uploaded_file):
 def process_dash_tiendas(uploaded_file):
     df_dash = load_excel_first_sheet(uploaded_file, header=0)
 
-    # Necesitamos hasta S (index 18)
     if df_dash.shape[1] < 19:
         raise ValueError("El Dash de tiendas no tiene suficientes columnas (necesito hasta la columna S).")
 
-    # Por posición según tu regla:
     # B=CECO, C=Value Tienda, E=Región, G=Nombre tienda, R=DM, S=AM
-    col_B = df_dash.columns[1]   # B
-    col_C = df_dash.columns[2]   # C
-    col_E = df_dash.columns[4]   # E
-    col_G = df_dash.columns[6]   # G
-    col_R = df_dash.columns[17]  # R
-    col_S = df_dash.columns[18]  # S
+    col_B = df_dash.columns[1]
+    col_C = df_dash.columns[2]
+    col_E = df_dash.columns[4]
+    col_G = df_dash.columns[6]
+    col_R = df_dash.columns[17]
+    col_S = df_dash.columns[18]
 
     out = pd.DataFrame({
         "TIENDA": df_dash[col_C],
@@ -179,16 +173,14 @@ def process_dash_tiendas(uploaded_file):
     out["TIENDA"] = out["TIENDA"].astype(int)
     out = out.drop_duplicates(subset=["TIENDA"], keep="first")
 
-    # Orden final EXACTO para correo
-    out = out[["Ce.coste", "Centro de coste", "TIENDA", "AM", "DM", "Región"]]
-    return out
+    return out[["Ce.coste", "Centro de coste", "TIENDA", "AM", "DM", "Región"]]
 
 # =========================================================
-# UI - Uploaders (Usuario final)
+# UI (usuario final)
 # =========================================================
 st.info(
     "Sube los 4 archivos. La app calcula qué tiendas y CEDIS faltan en Interfaces y genera un Excel con la hoja "
-    "**Faltantes_Total** lista para pegar en un correo."
+    "**Faltantes_Total** lista para correo."
 )
 
 c1, c2, c3, c4 = st.columns(4)
@@ -211,14 +203,10 @@ with c4:
 
 st.divider()
 
-# =========================================================
-# Procesamiento (se ejecuta dentro de la app)
-# =========================================================
 interfaces_cecos = None
 tiendas_cecos = None
 cedis_md = None
 dash_lookup = None
-
 errors = []
 
 if f_interfaces:
@@ -232,7 +220,6 @@ if f_interfaces:
 if f_cecos:
     try:
         tiendas_cecos = process_cecos_file(f_cecos)
-        # Paso 2 interno: no mostramos tablas, solo confirmación mínima
         st.success(f"Cecos procesado: {len(tiendas_cecos)} tiendas activas (filtradas).")
     except Exception as e:
         errors.append(f"Cecos: {e}")
@@ -247,7 +234,7 @@ if f_md:
 if f_dash:
     try:
         dash_lookup = process_dash_tiendas(f_dash)
-        st.success(f"Dash procesado: {len(dash_lookup)} tiendas disponibles para enriquecer el reporte.")
+        st.success(f"Dash procesado: {len(dash_lookup)} tiendas disponibles.")
     except Exception as e:
         errors.append(f"Dash: {e}")
 
@@ -272,16 +259,13 @@ else:
         st.info("Carga Cecos (Paso 2) y/o MD (Paso 3) para calcular faltantes.")
     else:
         missing_union = sorted(list(union_source - set_interfaces))
-
         st.metric("TOTAL faltantes (Tiendas ∪ CEDIS) vs Interfaces", len(missing_union))
 
-        # Base de faltantes (columna TIENDA contiene tanto tiendas como cedis)
         df_total_base = pd.DataFrame({"TIENDA": missing_union})
         df_total_base["TIENDA"] = pd.to_numeric(df_total_base["TIENDA"], errors="coerce").astype("Int64")
         df_total_base = df_total_base.dropna(subset=["TIENDA"]).copy()
         df_total_base["TIENDA"] = df_total_base["TIENDA"].astype(int)
 
-        # Enriquecer con Dash si existe (si no, deja columnas vacías)
         if dash_lookup is not None:
             df_faltantes_total = df_total_base.merge(dash_lookup, on="TIENDA", how="left")
         else:
@@ -292,13 +276,11 @@ else:
             df_faltantes_total["DM"] = ""
             df_faltantes_total["Región"] = ""
 
-        # Orden final EXACTO para correo
         df_faltantes_total = df_faltantes_total[["Ce.coste", "Centro de coste", "TIENDA", "AM", "DM", "Región"]]
 
         st.write("**Tabla para correo (Faltantes_Total):**")
         st.dataframe(df_faltantes_total, use_container_width=True)
 
-        # Descargar Excel con hojas
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             pd.DataFrame({"Cecos_interfaces": sorted(list(set_interfaces))}).to_excel(
@@ -316,4 +298,11 @@ else:
                 )
 
             df_faltantes_total.to_excel(writer, index=False, sheet_name="Faltantes_Total")
-            pd.DataFrame({"faltante_unio_
+            pd.DataFrame({"faltante_union_raw": missing_union}).to_excel(writer, index=False, sheet_name="Faltantes_raw")
+
+        st.download_button(
+            "Descargar Excel (Faltantes_Total listo para correo)",
+            data=output.getvalue(),
+            file_name="faltantes_en_interfaces.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
